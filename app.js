@@ -1,5 +1,5 @@
 (function(){
-const VERSION='v0.0.3';
+const VERSION='v0.0.4';
 const KEY='mh-bolos-v2';
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,9);
@@ -499,7 +499,7 @@ function encFrom(fd){
   o.partes=montar(o,S.cfg.prop,S.bolos);return o.partes.length?o:null;
 }
 /* quantidade usada de uma parte da encomenda: em branco = automático */
-const qRow=(k,sel,g)=>`<div class="inp-wrap qrow" data-for="${sel}"><input class="inp" name="q${k}" inputmode="decimal" placeholder="Automático" value="${g>0?Math.round(g):''}" aria-label="Quantidade usada"><select class="inp" name="u${k}" aria-label="Unidade"><option value="1">g</option><option value="1000">kg</option><option value="r">receita</option></select></div>`;
+const qRow=(k,sel,g)=>`<div class="qbox" data-for="${sel}"><div class="inp-wrap qrow"><input class="inp" name="q${k}" inputmode="decimal" placeholder="Automático" value="${g>0?Math.round(g):''}" aria-label="Quantidade usada"><select class="inp" name="u${k}" aria-label="Unidade"><option value="1">g</option><option value="1000">kg</option><option value="r">receita</option></select></div><p class="qv" aria-live="polite"></p></div>`;
 function formEnc(id,modeloId){
   const e=S.enc[id];const m=S.bolos[e?.modelo||modeloId||''];
   const recsOf=t=>Object.values(S.rec).filter(r=>r.tipo===t).sort((a,b)=>a.nome.localeCompare(b.nome));
@@ -546,11 +546,13 @@ function formEnc(id,modeloId){
   const f=$('#enc-f'),F=n=>f.elements.namedItem(n);let tVal=!!e,tTab=!!e||!!m;
   const upd=()=>{const mod=F('modelo').value;$('#montar').hidden=!!mod;
     if(!tTab){const md=S.bolos[mod];const want=md?md.tab:(F('ad').value?'t2':'t1');if(S.cfg.tab.some(t=>t.id===want))F('tab').value=want}
-    f.querySelectorAll('.qrow').forEach(q=>q.hidden=!F(q.dataset.for).value);
+    f.querySelectorAll('.qbox').forEach(q=>{q.hidden=!F(q.dataset.for).value;q.querySelector('.qv').innerHTML=''});
     const o=encFrom(new FormData(f));
     if(!o){$('#enc-sum').innerHTML=`<p class="sub" style="margin:0${encFrom.erro?';color:var(--bad);font-weight:600':''}">${encFrom.erro||'Escolha massa, recheio e peso para ver o preço.'}</p>`;$('#n-div').textContent='';return}
-    if(!mod){const gs=[o.massa,...o.recheios,...(o.adicional?[o.adicional]:[])].map((r,j)=>o.partes[j]?.g);let j=0;
-      f.querySelectorAll('.qrow:not([hidden]) input').forEach(i=>{const g=gs[j++];i.placeholder=g?`Automático: ${fq(g,'g')}`:'Automático'})}
+    /* quantidade e valor de cada parte, logo abaixo do campo */
+    if(!mod){let j=0;f.querySelectorAll('.qbox:not([hidden])').forEach(q=>{const p=o.partes[j++],r=p&&S.rec[p.rec];
+      q.querySelector('input').placeholder=p?`Automático: ${fq(p.g,'g')}`:'Automático';
+      if(r)q.querySelector('.qv').innerHTML=`<span>${fq(p.g,'g')}</span><b class="num">${brl(p.g*recG(r))}</b>`})}
     $('#n-div').textContent=o.partes.map(p=>`${S.rec[p.rec]?.nome}: ${fq(p.g,'g')}`).join(' · ');
     const c=calcBolo(o);
     if(!tVal)F('valor').value=num(c.t?c.precoTab:c.preco,2);
