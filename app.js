@@ -1,5 +1,5 @@
 (function(){
-const VERSION='v0.0.1';
+const VERSION='v0.0.2';
 const KEY='mh-bolos-v2';
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,9);
@@ -116,10 +116,12 @@ const fdia=d=>new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short
 function montar(e,prop,bolos){
   const tot=e.peso*1000;
   if(e.modelo&&bolos[e.modelo]){const m=bolos[e.modelo];const base=m.partes.reduce((s,p)=>s+p.g,0)||1;return m.partes.map(p=>({rec:p.rec,g:Math.round(p.g*tot/base)}))}
-  const rs=(e.recheios||[]).filter(Boolean),ad=e.adicional;
-  const mg=tot*prop.massa/100,ag=ad?tot*prop.adicional/100:0,rg=tot-mg-ag;
-  const out=[{rec:e.massa,g:Math.round(mg)}];rs.forEach(r=>out.push({rec:r,g:Math.round(rg/rs.length)}));if(ad)out.push({rec:ad,g:Math.round(ag)});
-  return out.filter(p=>p.rec&&p.g>0);
+  const rs=(e.recheios||[]).filter(Boolean),ad=e.adicional,man=e.man||{};
+  const wr=(100-prop.massa-(ad?prop.adicional:0))/(rs.length||1);
+  const ps=[{rec:e.massa,w:prop.massa,m:man.massa},...rs.map((r,j)=>({rec:r,w:wr,m:man.rec?.[j]}))];if(ad)ps.push({rec:ad,w:prop.adicional,m:man.ad});
+  /* quantidade manual fica fixa; o resto do peso é dividido entre as partes automáticas pela proporção */
+  const fixo=ps.reduce((s,p)=>s+(p.m>0?p.m:0),0),autos=ps.filter(p=>!(p.m>0)),wt=autos.reduce((s,p)=>s+p.w,0)||1,resto=tot-fixo;
+  return ps.map(p=>({rec:p.rec,g:Math.round(p.m>0?p.m:resto*p.w/wt)})).filter(p=>p.rec&&p.g>0);
 }
 /* ---------- navegação ---------- */
 let tab='bolos',stack=[],recFiltro='Todos',catFiltro='Todos',busca='',escala={},escRec={},armed=null;
@@ -444,11 +446,24 @@ function formRec(id){const r=S.rec[id];
   <div id="rows">${rowsHtml('ri',r?r.itens:[{}])}</div><button type="button" class="btn sm" data-act="addrow" data-k="ri">${ic('plus')} Ingrediente</button>
   <div style="height:14px"></div>
   ${fld('r-r','Quanto rende (pronto)',`<div class="inp-wrap"><input class="inp" id="r-r" name="rend" inputmode="decimal" required value="${r?num(r.rend):''}" placeholder="Ex.: 1000"><span class="unit">g</span></div>`,'Pese a receita depois de pronta. É o que entra no bolo.')}
-  ${actions(r?`<button type="button" class="btn danger block" data-act="del" data-k="rec" data-id="${id}">Apagar receita</button>`:'')}</form>`,(fd)=>{
+  <div class="aviso" id="rec-aviso" hidden></div>
+  ${actions(r?`<button type="button" class="btn danger block" data-act="del" data-k="rec" data-id="${id}">Apagar receita</button>`:'')}</form>`,(fd,f)=>{
     const ri=fd.getAll('ri'),rq=fd.getAll('rq');const itens=ri.map((x,j)=>({ins:x,qtd:pfd(rq[j])})).filter(x=>x.qtd>0);
     const o={nome:fd.get('nome').trim(),tipo:fd.get('tipo'),rend:pfd(fd.get('rend')),itens};if(!o.rend||!itens.length){toast('Informe ingredientes e rendimento');return false}
+    const avisos=avisosRec(o),assin=JSON.stringify(o);
+    if(avisos.length&&f.dataset.ok!==assin){f.dataset.ok=assin;const box=$('#rec-aviso');
+      box.innerHTML=`<p class="t">${ic('alert')} Confira antes de salvar</p>${avisos.map(a=>`<p>${a}</p>`).join('')}<p class="s">Se estiver certo, toque em Salvar mesmo assim.</p>`;
+      box.hidden=false;f.querySelector('.btn.primary').textContent='Salvar mesmo assim';box.scrollIntoView({behavior:'smooth',block:'center'});return false}
     if(r)Object.assign(r,o);else{const nid=uid();S.rec[nid]={id:nid,...o}}save();toast('Receita salva')});
+  const f=$('#sheet-in form');f.addEventListener('input',()=>{if(f.dataset.ok){delete f.dataset.ok;$('#rec-aviso').hidden=true;f.querySelector('.btn.primary').textContent='Salvar'}});
 }
+/* Avisos de cadastro: pegam erros comuns, como rendimento em kg no campo de gramas ou ingrediente repetido. */
+function avisosRec(o){const av=[];
+  const cont={};o.itens.forEach(it=>cont[it.ins]=(cont[it.ins]||0)+1);
+  Object.keys(cont).filter(k=>cont[k]>1&&S.ins[k]).forEach(k=>av.push(`<b>${esc(S.ins[k].nome)}</b> aparece ${cont[k]} vezes. Veja se um deles não era outro ingrediente.`));
+  const peso=o.itens.reduce((s,it)=>{const i=S.ins[it.ins];return s+(i&&i.un!=='un'?it.qtd:0)},0);
+  if(peso>0&&o.rend<peso*0.3)av.push(`Os ingredientes somam ${fq(peso,'g')}, mas o rendimento está ${fq(o.rend,'g')}. O rendimento é em <b>gramas</b>: 1 kg = 1000 g.`);
+  return av}
 function formBolo(id){const b=S.bolos[id];
   sheet(`<form><h2>${b?'Editar modelo':'Novo modelo de bolo'}</h2>
   ${fld('b-n','Nome do bolo',`<input class="inp" id="b-n" name="nome" required value="${esc(b?.nome)}" placeholder="Ex.: Ninho com morango">`)}
@@ -467,13 +482,23 @@ function formBolo(id){const b=S.bolos[id];
     save();toast('Modelo salvo')});
 }
 function encFrom(fd){
-  const modelo=fd.get('modelo')||'';const peso=pfd(fd.get('peso'));const bq=fd.getAll('bq');const md=S.bolos[modelo];
-  const o={modelo,massa:modelo?'':(fd.get('massa')||''),recheios:modelo?[]:[fd.get('r1'),fd.get('r2'),fd.get('r3')].filter(Boolean),adicional:modelo?'':(fd.get('ad')||''),peso,
+  encFrom.erro='';
+  const modelo=fd.get('modelo')||'';let peso=pfd(fd.get('peso'));const bq=fd.getAll('bq');const md=S.bolos[modelo];
+  const qg=k=>pfd(fd.get('q'+k))*(pf(fd.get('u'+k))||1);
+  const rs=modelo?[]:[1,2,3].map(k=>({rec:fd.get('r'+k),g:qg(k)})).filter(x=>x.rec);
+  const o={modelo,massa:modelo?'':(fd.get('massa')||''),recheios:rs.map(x=>x.rec),adicional:modelo?'':(fd.get('ad')||''),peso,
     itens:fd.getAll('bi').map((x,j)=>({ins:x,qtd:pfd(bq[j])})).filter(x=>x.qtd>0),
     forno:fd.has('forno')?pfd(fd.get('forno')):(md?.forno??45),margem:pfd(fd.get('margem')),mao:pfd(fd.get('mao')),outros:pfd(fd.get('outros')),tab:fd.get('tab')||''};
+  if(!modelo){const man={massa:qg('m'),rec:rs.map(x=>x.g),ad:o.adicional?qg('a'):0};const qs=[man.massa,...man.rec,...(o.adicional?[man.ad]:[])];
+    o.man=qs.some(q=>q>0)?man:undefined;
+    const soma=qs.reduce((s,q)=>s+q,0);
+    if(qs.length&&qs.every(q=>q>0))o.peso=peso=soma/1000;
+    else if(o.man&&peso>0&&soma>=peso*1000){encFrom.erro='As quantidades preenchidas já somam o peso do bolo. Aumente o peso ou preencha todas as partes.';return null}}
   if(!(peso>0)||(!modelo&&(!o.massa||!o.recheios.length)))return null;
   o.partes=montar(o,S.cfg.prop,S.bolos);return o.partes.length?o:null;
 }
+/* quantidade usada de uma parte da encomenda: em branco = automático */
+const qRow=(k,sel,g)=>`<div class="inp-wrap qrow" data-for="${sel}"><input class="inp" name="q${k}" inputmode="decimal" placeholder="Automático" value="${g>0?Math.round(g):''}" aria-label="Quantidade usada"><select class="inp" name="u${k}" aria-label="Unidade"><option value="1">g</option><option value="1000">kg</option></select></div>`;
 function formEnc(id,modeloId){
   const e=S.enc[id];const m=S.bolos[e?.modelo||modeloId||''];
   const recsOf=t=>Object.values(S.rec).filter(r=>r.tipo===t).sort((a,b)=>a.nome.localeCompare(b.nome));
@@ -489,11 +514,12 @@ function formEnc(id,modeloId){
   <h3 class="grp-h">Bolo</h3>
   ${fld('n-m','Modelo',`<select class="inp" id="n-m" name="modelo"><option value="">Montar agora (massa + recheio)</option>${Object.values(S.bolos).map(b=>`<option value="${b.id}"${b.id===m?.id?' selected':''}>${esc(b.nome)}</option>`).join('')}</select>`)}
   <div id="montar"${m?' hidden':''}>
-   ${fld('n-ma','Massa',`<select class="inp" id="n-ma" name="massa">${opt(recsOf('Massa'),e?.massa)}</select>`)}
-   ${fld('n-r1','Recheio',`<select class="inp" id="n-r1" name="r1">${opt(recsOf('Recheio'),e?.recheios?.[0])}</select>`)}
-   ${fld('n-r2','Segundo recheio',`<select class="inp" id="n-r2" name="r2">${opt(recsOf('Recheio'),e?.recheios?.[1],'Nenhum')}</select>`)}
-   ${fld('n-r3','Terceiro recheio',`<select class="inp" id="n-r3" name="r3">${opt(recsOf('Recheio'),e?.recheios?.[2],'Nenhum')}</select>`)}
-   ${fld('n-ad','Adicional',`<select class="inp" id="n-ad" name="ad">${opt(recsOf('Adicional'),e?.adicional,'Nenhum')}</select>`)}
+   <p class="sub" style="margin:0 0 12px;font-size:14px">Em branco, o app divide o peso do bolo sozinho. Se quiser, coloque quanto usou de cada parte.</p>
+   ${fld('n-ma','Massa',`<select class="inp" id="n-ma" name="massa">${opt(recsOf('Massa'),e?.massa)}</select>${qRow('m','massa',e?.man?.massa)}`)}
+   ${fld('n-r1','Recheio',`<select class="inp" id="n-r1" name="r1">${opt(recsOf('Recheio'),e?.recheios?.[0])}</select>${qRow('1','r1',e?.man?.rec?.[0])}`)}
+   ${fld('n-r2','Segundo recheio',`<select class="inp" id="n-r2" name="r2">${opt(recsOf('Recheio'),e?.recheios?.[1],'Nenhum')}</select>${qRow('2','r2',e?.man?.rec?.[1])}`)}
+   ${fld('n-r3','Terceiro recheio',`<select class="inp" id="n-r3" name="r3">${opt(recsOf('Recheio'),e?.recheios?.[2],'Nenhum')}</select>${qRow('3','r3',e?.man?.rec?.[2])}`)}
+   ${fld('n-ad','Adicional',`<select class="inp" id="n-ad" name="ad">${opt(recsOf('Adicional'),e?.adicional,'Nenhum')}</select>${qRow('a','ad',e?.man?.ad)}`)}
   </div>
   ${fld('n-p','Peso do bolo',`<div class="inp-wrap"><input class="inp" id="n-p" name="peso" inputmode="decimal" value="${num(peso0,2)}" required><span class="unit">kg</span></div>`)}
   <p class="sub" id="n-div" style="margin:-6px 0 14px;font-size:13.5px"></p>
@@ -510,7 +536,7 @@ function formEnc(id,modeloId){
   ${fld('n-v','Valor combinado com a cliente',`<div class="inp-wrap"><span class="unit">R$</span><input class="inp" id="n-v" name="valor" inputmode="decimal" required value="${e?num(e.valor,2):''}"></div>`,'Começa com o valor do cardápio. Mude se combinou outro preço.')}
   ${e?'':fld('n-s','Sinal já recebido',`<div class="inp-wrap"><span class="unit">R$</span><input class="inp" id="n-s" name="sinal" inputmode="decimal" placeholder="0,00"></div>`)}
   ${actions(e?`<button type="button" class="btn danger block" data-act="del" data-k="enc" data-id="${id}">Apagar encomenda</button>`:'')}</form>`,fd=>{
-    const o=encFrom(fd);if(!o){toast('Escolha massa, recheio e o peso');return false}
+    const o=encFrom(fd);if(!o){toast(encFrom.erro||'Escolha massa, recheio e o peso');return false}
     const valor=pfd(fd.get('valor'));if(!valor){toast('Informe o valor combinado');return false}
     const base={cliente:String(fd.get('cliente')).trim(),tel:fd.get('tel'),entrega:fd.get('entrega')||today(),valor};
     if(e){Object.assign(e,o,base);toast('Encomenda salva')}
@@ -519,8 +545,12 @@ function formEnc(id,modeloId){
   const f=$('#enc-f'),F=n=>f.elements.namedItem(n);let tVal=!!e,tTab=!!e||!!m;
   const upd=()=>{const mod=F('modelo').value;$('#montar').hidden=!!mod;
     if(!tTab){const md=S.bolos[mod];const want=md?md.tab:(F('ad').value?'t2':'t1');if(S.cfg.tab.some(t=>t.id===want))F('tab').value=want}
+    f.querySelectorAll('.qrow').forEach(q=>q.hidden=!F(q.dataset.for).value);
     const o=encFrom(new FormData(f));
-    if(!o){$('#enc-sum').innerHTML='<p class="sub" style="margin:0">Escolha massa, recheio e peso para ver o preço.</p>';$('#n-div').textContent='';return}
+    if(!o){$('#enc-sum').innerHTML=`<p class="sub" style="margin:0${encFrom.erro?';color:var(--bad);font-weight:600':''}">${encFrom.erro||'Escolha massa, recheio e peso para ver o preço.'}</p>`;$('#n-div').textContent='';return}
+    if(!mod){const pk=o.peso.toFixed(2);if(o.man&&pfd(F('peso').value).toFixed(2)!==pk&&[...f.querySelectorAll('.qrow:not([hidden]) input')].every(i=>pfd(i.value)>0))F('peso').value=num(o.peso,2);
+      const gs=[o.massa,...o.recheios,...(o.adicional?[o.adicional]:[])].map((r,j)=>o.partes[j]?.g);let j=0;
+      f.querySelectorAll('.qrow:not([hidden]) input').forEach(i=>{const g=gs[j++];i.placeholder=g?`Automático: ${fq(g,'g')}`:'Automático'})}
     $('#n-div').textContent=o.partes.map(p=>`${S.rec[p.rec]?.nome}: ${fq(p.g,'g')}`).join(' · ');
     const c=calcBolo(o);
     if(!tVal)F('valor').value=num(c.t?c.precoTab:c.preco,2);
