@@ -68,7 +68,7 @@ button,input,select{font:inherit;color:inherit}
 .pill.bad{color:var(--bad);background:var(--bad-bg)}
 .pill .hi{width:16px;height:16px}
 .qrow{margin-top:8px}
-.qrow select.inp{flex:0 0 84px}
+.qrow select.inp{flex:0 0 116px}
 .aviso{background:var(--warn-bg);color:var(--warn);border-radius:var(--r);padding:14px 16px;margin:4px 0 14px;font-size:15.5px;line-height:1.45}
 .aviso p{margin:0 0 8px}
 .aviso p:last-child{margin-bottom:0}

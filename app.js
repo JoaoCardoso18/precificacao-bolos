@@ -1,5 +1,5 @@
 (function(){
-const VERSION='v0.0.2';
+const VERSION='v0.0.3';
 const KEY='mh-bolos-v2';
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,9);
@@ -86,7 +86,8 @@ const recG=r=>r.rend?recCusto(r)/r.rend:0;
 function calcBolo(b,fator=1){
   const partes=b.partes.map(p=>{const r=S.rec[p.rec];const g=p.g*fator;return {r,g,custo:r?g*recG(r):0}}).filter(p=>p.r);
   const itens=b.itens.map(it=>{const i=S.ins[it.ins];return {i,qtd:it.qtd,custo:i?cUnit(i)*it.qtd:0}}).filter(p=>p.i);
-  const peso=partes.reduce((s,p)=>s+p.g,0)/1000;
+  /* com quantidades manuais o peso do bolo é o informado (as camadas não precisam somar o peso) */
+  const peso=b.man&&b.peso>0?b.peso*fator:partes.reduce((s,p)=>s+p.g,0)/1000;
   const ingr=partes.reduce((s,p)=>s+p.custo,0);
   const extras=itens.reduce((s,p)=>s+p.custo,0);
   const gas=S.cfg.gas?(b.forno||0)/60*S.cfg.gasHora:0;
@@ -484,7 +485,8 @@ function formBolo(id){const b=S.bolos[id];
 function encFrom(fd){
   encFrom.erro='';
   const modelo=fd.get('modelo')||'';let peso=pfd(fd.get('peso'));const bq=fd.getAll('bq');const md=S.bolos[modelo];
-  const qg=k=>pfd(fd.get('q'+k))*(pf(fd.get('u'+k))||1);
+  const sel={m:'massa',1:'r1',2:'r2',3:'r3',a:'ad'};
+  const qg=k=>{const q=pfd(fd.get('q'+k)),u=fd.get('u'+k);return u==='r'?q*(S.rec[fd.get(sel[k])]?.rend||0):q*(pf(u)||1)};
   const rs=modelo?[]:[1,2,3].map(k=>({rec:fd.get('r'+k),g:qg(k)})).filter(x=>x.rec);
   const o={modelo,massa:modelo?'':(fd.get('massa')||''),recheios:rs.map(x=>x.rec),adicional:modelo?'':(fd.get('ad')||''),peso,
     itens:fd.getAll('bi').map((x,j)=>({ins:x,qtd:pfd(bq[j])})).filter(x=>x.qtd>0),
@@ -492,13 +494,12 @@ function encFrom(fd){
   if(!modelo){const man={massa:qg('m'),rec:rs.map(x=>x.g),ad:o.adicional?qg('a'):0};const qs=[man.massa,...man.rec,...(o.adicional?[man.ad]:[])];
     o.man=qs.some(q=>q>0)?man:undefined;
     const soma=qs.reduce((s,q)=>s+q,0);
-    if(qs.length&&qs.every(q=>q>0))o.peso=peso=soma/1000;
-    else if(o.man&&peso>0&&soma>=peso*1000){encFrom.erro='As quantidades preenchidas já somam o peso do bolo. Aumente o peso ou preencha todas as partes.';return null}}
+    if(o.man&&!qs.every(q=>q>0)&&peso>0&&soma>=peso*1000){encFrom.erro='As quantidades preenchidas já somam o peso do bolo. Aumente o peso ou preencha todas as partes.';return null}}
   if(!(peso>0)||(!modelo&&(!o.massa||!o.recheios.length)))return null;
   o.partes=montar(o,S.cfg.prop,S.bolos);return o.partes.length?o:null;
 }
 /* quantidade usada de uma parte da encomenda: em branco = automático */
-const qRow=(k,sel,g)=>`<div class="inp-wrap qrow" data-for="${sel}"><input class="inp" name="q${k}" inputmode="decimal" placeholder="Automático" value="${g>0?Math.round(g):''}" aria-label="Quantidade usada"><select class="inp" name="u${k}" aria-label="Unidade"><option value="1">g</option><option value="1000">kg</option></select></div>`;
+const qRow=(k,sel,g)=>`<div class="inp-wrap qrow" data-for="${sel}"><input class="inp" name="q${k}" inputmode="decimal" placeholder="Automático" value="${g>0?Math.round(g):''}" aria-label="Quantidade usada"><select class="inp" name="u${k}" aria-label="Unidade"><option value="1">g</option><option value="1000">kg</option><option value="r">receita</option></select></div>`;
 function formEnc(id,modeloId){
   const e=S.enc[id];const m=S.bolos[e?.modelo||modeloId||''];
   const recsOf=t=>Object.values(S.rec).filter(r=>r.tipo===t).sort((a,b)=>a.nome.localeCompare(b.nome));
@@ -514,7 +515,7 @@ function formEnc(id,modeloId){
   <h3 class="grp-h">Bolo</h3>
   ${fld('n-m','Modelo',`<select class="inp" id="n-m" name="modelo"><option value="">Montar agora (massa + recheio)</option>${Object.values(S.bolos).map(b=>`<option value="${b.id}"${b.id===m?.id?' selected':''}>${esc(b.nome)}</option>`).join('')}</select>`)}
   <div id="montar"${m?' hidden':''}>
-   <p class="sub" style="margin:0 0 12px;font-size:14px">Em branco, o app divide o peso do bolo sozinho. Se quiser, coloque quanto usou de cada parte.</p>
+   <p class="sub" style="margin:0 0 12px;font-size:14px">Coloque quanto usou de cada parte, em g, kg ou receitas (1 receita = o rendimento cadastrado). Em branco, o app divide o peso do bolo sozinho. O peso do bolo é sempre o que você colocar.</p>
    ${fld('n-ma','Massa',`<select class="inp" id="n-ma" name="massa">${opt(recsOf('Massa'),e?.massa)}</select>${qRow('m','massa',e?.man?.massa)}`)}
    ${fld('n-r1','Recheio',`<select class="inp" id="n-r1" name="r1">${opt(recsOf('Recheio'),e?.recheios?.[0])}</select>${qRow('1','r1',e?.man?.rec?.[0])}`)}
    ${fld('n-r2','Segundo recheio',`<select class="inp" id="n-r2" name="r2">${opt(recsOf('Recheio'),e?.recheios?.[1],'Nenhum')}</select>${qRow('2','r2',e?.man?.rec?.[1])}`)}
@@ -548,8 +549,7 @@ function formEnc(id,modeloId){
     f.querySelectorAll('.qrow').forEach(q=>q.hidden=!F(q.dataset.for).value);
     const o=encFrom(new FormData(f));
     if(!o){$('#enc-sum').innerHTML=`<p class="sub" style="margin:0${encFrom.erro?';color:var(--bad);font-weight:600':''}">${encFrom.erro||'Escolha massa, recheio e peso para ver o preço.'}</p>`;$('#n-div').textContent='';return}
-    if(!mod){const pk=o.peso.toFixed(2);if(o.man&&pfd(F('peso').value).toFixed(2)!==pk&&[...f.querySelectorAll('.qrow:not([hidden]) input')].every(i=>pfd(i.value)>0))F('peso').value=num(o.peso,2);
-      const gs=[o.massa,...o.recheios,...(o.adicional?[o.adicional]:[])].map((r,j)=>o.partes[j]?.g);let j=0;
+    if(!mod){const gs=[o.massa,...o.recheios,...(o.adicional?[o.adicional]:[])].map((r,j)=>o.partes[j]?.g);let j=0;
       f.querySelectorAll('.qrow:not([hidden]) input').forEach(i=>{const g=gs[j++];i.placeholder=g?`Automático: ${fq(g,'g')}`:'Automático'})}
     $('#n-div').textContent=o.partes.map(p=>`${S.rec[p.rec]?.nome}: ${fq(p.g,'g')}`).join(' · ');
     const c=calcBolo(o);
