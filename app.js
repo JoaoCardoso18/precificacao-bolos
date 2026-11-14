@@ -1,5 +1,5 @@
 (function(){
-const VERSION='v0.0.5';
+const VERSION='v0.0.6';
 const KEY='mh-bolos-v2';
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,9);
@@ -94,12 +94,16 @@ function calcBolo(b,fator=1){
   const extras=itens.reduce((s,p)=>s+p.custo,0);
   const gas=S.cfg.gas?(b.forno||0)/60*S.cfg.gasHora:0;
   const fixo=S.cfg.fixo?S.cfg.fixoMes/Math.max(1,S.cfg.bolosMes):0;
-  const custo=ingr+extras+gas+fixo;
-  const margemV=custo*(b.margem||0)/100;
-  const preco=custo+margemV+(b.mao||0)+(b.outros||0);
+  const base=ingr+extras+gas+fixo;
+  /* mão de obra e outros: valor fixo em R$ ou % do custo de produção; entram no custo do bolo */
+  const vx=(v,tp)=>tp==='p'?base*(v||0)/100:(v||0);
+  const maoV=vx(b.mao,b.maoTipo),outV=vx(b.outros,b.outrosTipo);
+  const custo=base+maoV+outV;
+  const margemV=base*(b.margem||0)/100;
+  const preco=custo+margemV;
   const t=S.cfg.tab.find(x=>x.id===b.tab);
   const precoTab=t?t.kg*peso:0;
-  return {partes,itens,peso,ingr,extras,gas,fixo,custo,margemV,preco,porKg:peso?preco/peso:0,ganho:margemV+(b.mao||0),t,precoTab};
+  return {partes,itens,peso,ingr,extras,gas,fixo,base,maoV,outV,custo,margemV,preco,porKg:peso?preco/peso:0,ganho:margemV+maoV,t,precoTab};
 }
 /* ingredientes brutos de um bolo (para produzir e para a ficha) */
 function insumosBolo(b,fator=1){
@@ -178,7 +182,7 @@ V.bolo=({id})=>{
   const c=calcBolo(b,f);const ins=insumosBolo(b,f);
   const lin=(l,v,s='')=>`<div class="line"><span class="l">${l}${s?`<small>${s}</small>`:''}</span><span class="num">${v}</span></div>`;
   const tabOpts=S.cfg.tab.map(t=>`<option value="${t.id}"${t.id===b.tab?' selected':''}>${esc(t.nome)} · ${brl(t.kg)}/kg</option>`).join('');
-  const gTab=c.t?c.precoTab-c.custo-(b.outros||0):0;
+  const gTab=c.t?c.precoTab-c.custo:0;
   return headBack(b.nome)+'<p class="sub">Modelo de bolo</p>'+
   `<button class="btn primary block" data-act="formEnc" data-modelo="${id}">${ic('plus')} Nova encomenda com este modelo</button><div class="row-btns"><button class="btn sm" data-act="formBolo" data-id="${id}">${ic('edit')} Editar modelo</button><button class="btn sm" data-act="go" data-v="ficha" data-id="${id}">${ic('doc')} Ficha técnica</button></div>
   <div class="sec"><h2>Tamanho do bolo</h2>
@@ -198,10 +202,10 @@ V.bolo=({id})=>{
     ${c.extras?lin('Embalagem e extras',brl(c.extras)):''}
     ${S.cfg.gas?lin('Gás e energia',brl(c.gas),`${b.forno||0} min de forno`):''}
     ${S.cfg.fixo?lin('Custos fixos',brl(c.fixo),'parte do mês por bolo'):''}
+    <div class="field" style="margin-top:14px"><label for="mo-${id}">Mão de obra adicional</label><div class="inp-wrap">${tipoSel(`data-live="bft" data-k="maoTipo" data-id="${id}"`,b.maoTipo)}<input class="inp" id="mo-${id}" inputmode="decimal" value="${num(b.mao,2)}" data-live="bf" data-k="mao" data-id="${id}"><span class="num tv">+ ${brl(c.maoV)}</span></div></div>
+    <div class="field"><label for="ou-${id}">Outros valores adicionais</label><div class="inp-wrap">${tipoSel(`data-live="bft" data-k="outrosTipo" data-id="${id}"`,b.outrosTipo)}<input class="inp" id="ou-${id}" inputmode="decimal" value="${num(b.outros,2)}" data-live="bf" data-k="outros" data-id="${id}"><span class="num tv">+ ${brl(c.outV)}</span></div><span class="help">Topper, decoração especial, entrega. Em % é calculado sobre o custo de produção.</span></div>
     <div class="line total"><span>Custo do bolo</span><span class="num">${brl(c.custo)}</span></div>
-    <div class="field" style="margin-top:14px"><label for="mg-${id}">Margem de lucro</label><div class="inp-wrap"><input class="inp" id="mg-${id}" inputmode="decimal" value="${num(b.margem,1)}" data-live="bf" data-k="margem" data-id="${id}"><span class="unit">%</span><span class="num" style="min-width:96px;text-align:right">+ ${brl(c.margemV)}</span></div></div>
-    <div class="field"><label for="mo-${id}">Mão de obra adicional</label><div class="inp-wrap"><span class="unit">R$</span><input class="inp" id="mo-${id}" inputmode="decimal" value="${num(b.mao,2)}" data-live="bf" data-k="mao" data-id="${id}"></div></div>
-    <div class="field"><label for="ou-${id}">Outros valores adicionais</label><div class="inp-wrap"><span class="unit">R$</span><input class="inp" id="ou-${id}" inputmode="decimal" value="${num(b.outros,2)}" data-live="bf" data-k="outros" data-id="${id}"></div><span class="help">Topper, decoração especial, entrega.</span></div>
+    <div class="field" style="margin-top:14px"><label for="mg-${id}">Margem de lucro</label><div class="inp-wrap"><input class="inp" id="mg-${id}" inputmode="decimal" value="${num(b.margem,1)}" data-live="bf" data-k="margem" data-id="${id}"><span class="unit">%</span><span class="num tv">+ ${brl(c.margemV)}</span></div></div>
     <div class="line total"><span>Preço sugerido</span><span class="num">${brl(c.preco)}</span></div>
     <div class="line result"><span>Preço por kg</span><span class="num" data-out="porkg">${brl(c.porKg)}</span></div>
     <div class="line"><span class="l">Seu ganho no bolo<small>margem + mão de obra</small></span><span class="num">${brl(c.ganho)}</span></div></div>
@@ -222,7 +226,9 @@ V.ficha=({id,k})=>{
     p.r.itens.filter(it=>S.ins[it.ins]).map(it=>{const i=S.ins[it.ins];const q=it.qtd*fr;return `<tr><td>${esc(i.nome)}</td><td class="r">${fq(q,i.un)}</td><td class="r">${brl(cUnit(i)*q)}</td></tr>`}).join('')}).join('')+
     (c.itens.length?`<tr class="grp"><td colspan="2">Embalagem e extras</td><td class="r">${brl(c.extras)}</td></tr>`+c.itens.map(p=>`<tr><td>${esc(p.i.nome)}</td><td class="r">${fq(p.qtd,p.i.un)}</td><td class="r">${brl(p.custo)}</td></tr>`).join(''):'')+
     (S.cfg.gas?`<tr><td colspan="2">Gás e energia (${b.forno||0} min)</td><td class="r">${brl(c.gas)}</td></tr>`:'')+
-    (S.cfg.fixo?`<tr><td colspan="2">Custos fixos</td><td class="r">${brl(c.fixo)}</td></tr>`:'');
+    (S.cfg.fixo?`<tr><td colspan="2">Custos fixos</td><td class="r">${brl(c.fixo)}</td></tr>`:'')+
+    (c.maoV?`<tr><td colspan="2">Mão de obra${b.maoTipo==='p'?` (${num(b.mao,1)}%)`:''}</td><td class="r">${brl(c.maoV)}</td></tr>`:'')+
+    (c.outV?`<tr><td colspan="2">Outros valores${b.outrosTipo==='p'?` (${num(b.outros,1)}%)`:''}</td><td class="r">${brl(c.outV)}</td></tr>`:'');
   return headBack('Ficha técnica')+
   `<div class="doc"><div class="dh">${document.querySelector('.brand-mark svg').outerHTML.replace('<svg','<svg style="width:44px;height:44px"')}<div class="dn">MARCIA HENDLER</div><div class="ds">ATELIÊ DE BOLOS FINOS</div></div>
   <h2>${esc(isE?descEnc(b):b.nome)}</h2><div class="dm">${isE?`Encomenda de ${esc(b.cliente)} · entrega ${fdate(b.entrega)} · `:''}Bolo de ${num(c.peso,2)} kg · custos pelo ${S.cfg.metodo==='medio'?'custo médio':'preço da última compra'} · ${fdate(today())}</div>
@@ -328,8 +334,9 @@ V.enc=({id})=>{
   <div class="sec"><h2>Como chegar no preço</h2>
     ${lin('Ingredientes',brl(c.ingr))}${c.extras?lin('Embalagem e extras',brl(c.extras)):''}
     ${S.cfg.gas?lin('Gás e energia',brl(c.gas),`${e.forno||0} min de forno`):''}${S.cfg.fixo?lin('Custos fixos',brl(c.fixo)):''}
+    ${c.maoV?lin('Mão de obra adicional',brl(c.maoV),e.maoTipo==='p'?`${num(e.mao,1)}% do custo de produção`:''):''}${c.outV?lin('Outros valores',brl(c.outV),e.outrosTipo==='p'?`${num(e.outros,1)}% do custo de produção`:''):''}
     <div class="line total"><span>Custo do bolo</span><span class="num">${brl(c.custo)}</span></div>
-    ${lin(`Margem de ${num(e.margem,1)}%`,'+ '+brl(c.margemV))}${e.mao?lin('Mão de obra adicional','+ '+brl(e.mao)):''}${e.outros?lin('Outros valores','+ '+brl(e.outros)):''}
+    ${lin(`Margem de ${num(e.margem,1)}%`,'+ '+brl(c.margemV))}
     <div class="line total"><span>Preço sugerido</span><span class="num">${brl(c.preco)}</span></div>
     ${lin('Preço sugerido por kg',brl(c.porKg))}
     ${c.t?lin('Pelo cardápio',brl(c.precoTab),`${num(c.peso,2)} kg × ${brl(c.t.kg)}`):''}
@@ -346,7 +353,7 @@ V.ajustes=()=>{const g=S.cfg;
     <label><input type="radio" name="met" value="medio" data-live="cfg" data-k="metodo"${g.metodo==='medio'?' checked':''}><span><b>Custo médio</b><small>Média de todas as compras registradas.</small></span></label></div></div>
   <div class="sec"><h2>Padrões para bolos novos</h2>
     <div class="field"><label for="cf-mg">Margem de lucro</label><div class="inp-wrap"><input class="inp" id="cf-mg" inputmode="decimal" value="${num(g.margem,1)}" data-live="cfgn" data-k="margem"><span class="unit">%</span></div></div>
-    <div class="field"><label for="cf-mo">Mão de obra</label><div class="inp-wrap"><span class="unit">R$</span><input class="inp" id="cf-mo" inputmode="decimal" value="${num(g.mao,2)}" data-live="cfgn" data-k="mao"></div></div></div>
+    <div class="field"><label for="cf-mo">Mão de obra</label><div class="inp-wrap">${tipoSel('data-live="cfgt" data-k="maoTipo"',g.maoTipo)}<input class="inp" id="cf-mo" inputmode="decimal" value="${num(g.mao,2)}" data-live="cfgn" data-k="mao"></div></div></div>
   <div class="sec"><h2>Divisão do bolo</h2><p class="sub" style="margin:0 0 12px">Ao montar uma encomenda, o peso é dividido assim. O recheio fica com o restante.</p>
     <div class="field"><label for="cf-pm">Massa</label><div class="inp-wrap"><input class="inp" id="cf-pm" inputmode="decimal" value="${num(g.prop.massa,1)}" data-live="prop" data-k="massa"><span class="unit">%</span></div></div>
     <div class="field"><label for="cf-pa">Adicional (quando tiver)</label><div class="inp-wrap"><input class="inp" id="cf-pa" inputmode="decimal" value="${num(g.prop.adicional,1)}" data-live="prop" data-k="adicional"><span class="unit">%</span></div></div>
@@ -401,6 +408,8 @@ function sheet(html,onSubmit){$('#sheet-in').innerHTML=html;$('#sheet').hidden=f
 function closeSheet(){$('#sheet').hidden=true;$('#sheet-in').innerHTML=''}
 const actions=(del='')=>`<div class="row-btns"><button type="button" class="btn" data-act="close">Cancelar</button><button class="btn primary">Salvar</button></div>${del}`;
 function toast(t){const el=$('#toast');el.textContent=t;el.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>el.hidden=true,2600)}
+/* escolha entre valor fixo (R$) e percentual (%) */
+const tipoSel=(attrs,v)=>`<select class="inp tsel" ${attrs} aria-label="Tipo de valor"><option value="v"${v!=='p'?' selected':''}>R$</option><option value="p"${v==='p'?' selected':''}>%</option></select>`;
 const fld=(id,label,inner,help='')=>`<div class="field"><label for="${id}">${label}</label>${inner}${help?`<span class="help">${help}</span>`:''}</div>`;
 const insOpts=(sel)=>{const ids=new Set(S.cats.map(c=>c.id));const all=Object.values(S.ins);
   return [...S.cats.map(c=>({n:c.nome,its:all.filter(i=>i.cat===c.id)})),{n:'Sem categoria',its:all.filter(i=>!ids.has(i.cat))}].filter(g=>g.its.length)
@@ -483,7 +492,7 @@ function formBolo(id){const b=S.bolos[id];
     const partes=bp.map((x,j)=>({rec:x,g:pfd(bg[j])})).filter(x=>x.g>0);const itens=bi.map((x,j)=>({ins:x,qtd:pfd(bq[j])})).filter(x=>x.qtd>0);
     if(!partes.length){toast('Adicione pelo menos uma receita com gramas');return false}
     const o={nome:fd.get('nome').trim(),partes,itens,forno:fd.has('forno')?pfd(fd.get('forno')):(b?.forno||0)};
-    if(b){Object.assign(b,o);delete escala[id]}else{const nid=uid();S.bolos[nid]={id:nid,...o,margem:S.cfg.margem,mao:S.cfg.mao,outros:0,tab:S.cfg.tab[0]?.id||''};stack.push({t:'bolo',id:nid})}
+    if(b){Object.assign(b,o);delete escala[id]}else{const nid=uid();S.bolos[nid]={id:nid,...o,margem:S.cfg.margem,mao:S.cfg.mao,maoTipo:S.cfg.maoTipo||'v',outros:0,tab:S.cfg.tab[0]?.id||''};stack.push({t:'bolo',id:nid})}
     save();toast('Modelo salvo')});
 }
 function encFrom(fd){
@@ -494,7 +503,7 @@ function encFrom(fd){
   const rs=modelo?[]:[1,2,3].map(k=>({rec:fd.get('r'+k),g:qg(k)})).filter(x=>x.rec);
   const o={modelo,massa:modelo?'':(fd.get('massa')||''),recheios:rs.map(x=>x.rec),adicional:modelo?'':(fd.get('ad')||''),cobertura:modelo?'':(fd.get('cb')||''),peso,
     itens:fd.getAll('bi').map((x,j)=>({ins:x,qtd:pfd(bq[j])})).filter(x=>x.qtd>0),
-    forno:fd.has('forno')?pfd(fd.get('forno')):(md?.forno??45),margem:pfd(fd.get('margem')),mao:pfd(fd.get('mao')),outros:pfd(fd.get('outros')),tab:fd.get('tab')||''};
+    forno:fd.has('forno')?pfd(fd.get('forno')):(md?.forno??45),margem:pfd(fd.get('margem')),mao:pfd(fd.get('mao')),maoTipo:fd.get('maoTipo')||'v',outros:pfd(fd.get('outros')),outrosTipo:fd.get('outrosTipo')||'v',tab:fd.get('tab')||''};
   if(!modelo){const man={massa:qg('m'),rec:rs.map(x=>x.g),ad:o.adicional?qg('a'):0,cob:o.cobertura?qg('c'):0};const qs=[man.massa,...man.rec,...(o.adicional?[man.ad]:[]),...(o.cobertura?[man.cob]:[])];
     o.man=qs.some(q=>q>0)?man:undefined;
     const soma=qs.reduce((s,q)=>s+q,0);
@@ -509,7 +518,7 @@ function formEnc(id,modeloId){
   const recsOf=t=>Object.values(S.rec).filter(r=>r.tipo===t).sort((a,b)=>a.nome.localeCompare(b.nome));
   const opt=(list,sel,none)=>(none?`<option value="">${none}</option>`:'')+list.map(r=>`<option value="${r.id}"${r.id===sel?' selected':''}>${esc(r.nome)}</option>`).join('');
   const peso0=e?e.peso:(m?+calcBolo(m).peso.toFixed(2):2);
-  const src=e||m||{margem:S.cfg.margem,mao:S.cfg.mao,outros:0,itens:S.cfg.emb,forno:45};
+  const src=e||m||{margem:S.cfg.margem,mao:S.cfg.mao,maoTipo:S.cfg.maoTipo,outros:0,itens:S.cfg.emb,forno:45};
   const ent0=e?e.entrega:(()=>{const t=new Date();t.setDate(t.getDate()+3);return localISO(t)})();
   sheet(`<form id="enc-f"><h2>${e?'Editar encomenda':'Nova encomenda'}</h2>
   <h3 class="grp-h" style="margin-top:0">Cliente</h3>
@@ -536,8 +545,8 @@ function formEnc(id,modeloId){
   ${S.cfg.gas?fld('n-f','Tempo de forno',`<div class="inp-wrap"><input class="inp" id="n-f" name="forno" inputmode="numeric" value="${src.forno??45}"><span class="unit">min</span></div>`):''}
   <h3 class="grp-h">Valor</h3>
   ${fld('n-mg','Margem de lucro',`<div class="inp-wrap"><input class="inp" id="n-mg" name="margem" inputmode="decimal" value="${num(src.margem,1)}"><span class="unit">%</span></div>`)}
-  ${fld('n-mo','Mão de obra adicional',`<div class="inp-wrap"><span class="unit">R$</span><input class="inp" id="n-mo" name="mao" inputmode="decimal" value="${num(src.mao,2)}"></div>`)}
-  ${fld('n-ou','Outros valores adicionais',`<div class="inp-wrap"><span class="unit">R$</span><input class="inp" id="n-ou" name="outros" inputmode="decimal" value="${num(src.outros||0,2)}"></div>`,'Topper, decoração especial, entrega.')}
+  ${fld('n-mo','Mão de obra adicional',`<div class="inp-wrap">${tipoSel('name="maoTipo"',src.maoTipo)}<input class="inp" id="n-mo" name="mao" inputmode="decimal" value="${num(src.mao,2)}"><span class="num tv" id="n-mov"></span></div>`)}
+  ${fld('n-ou','Outros valores adicionais',`<div class="inp-wrap">${tipoSel('name="outrosTipo"',src.outrosTipo)}<input class="inp" id="n-ou" name="outros" inputmode="decimal" value="${num(src.outros||0,2)}"><span class="num tv" id="n-ouv"></span></div>`,'Topper, decoração especial, entrega. Em % é calculado sobre o custo de produção.')}
   ${fld('n-tb','Preço do cardápio',`<select class="inp" id="n-tb" name="tab"><option value="">Não usar cardápio</option>${S.cfg.tab.map(t=>`<option value="${t.id}"${t.id===(e?.tab??m?.tab)?' selected':''}>${esc(t.nome)} · ${brl(t.kg)}/kg</option>`).join('')}</select>`)}
   <div class="sec" id="enc-sum" style="background:var(--bg)"></div>
   ${fld('n-v','Valor combinado com a cliente',`<div class="inp-wrap"><span class="unit">R$</span><input class="inp" id="n-v" name="valor" inputmode="decimal" required value="${e?num(e.valor,2):''}"></div>`,'Começa com o valor do cardápio. Mude se combinou outro preço.')}
@@ -563,15 +572,16 @@ function formEnc(id,modeloId){
       if(r)q.querySelector('.qv').innerHTML=`<span>${fq(p.g,'g')}</span><b class="num">${brl(p.g*recG(r))}</b>`})}
     $('#n-div').textContent=o.partes.map(p=>`${S.rec[p.rec]?.nome}: ${fq(p.g,'g')}`).join(' · ');
     const c=calcBolo(o);
+    $('#n-mov').textContent='+ '+brl(c.maoV);$('#n-ouv').textContent='+ '+brl(c.outV);
     if(!tVal)F('valor').value=num(c.t?c.precoTab:c.preco,2);
     const v=pfd(F('valor').value),g=v-c.custo;
-    $('#enc-sum').innerHTML=`<div class="line"><span>Custo do bolo</span><span class="num">${brl(c.custo)}</span></div>
+    $('#enc-sum').innerHTML=`<div class="line"><span class="l">Custo do bolo${c.maoV||c.outV?`<small>com mão de obra${c.outV?' e outros valores':''}</small>`:''}</span><span class="num">${brl(c.custo)}</span></div>
      <div class="line"><span class="l">Preço sugerido<small>${brl(c.porKg)}/kg com margem e mão de obra</small></span><span class="num">${brl(c.preco)}</span></div>
      ${c.t?`<div class="line"><span class="l">Pelo cardápio<small>${num(c.peso,2)} kg × ${brl(c.t.kg)}</small></span><span class="num">${brl(c.precoTab)}</span></div>`:''}
      <div class="line total"><span>Seu ganho com o valor combinado</span><span class="num" style="color:var(${g<=0?'--bad':'--good'})">${brl(g)}</span></div>`};
   f.addEventListener('input',ev=>{const n=ev.target.name;if(n==='valor')tVal=true;if(n==='tab')tTab=true;upd()});
   f.addEventListener('change',ev=>{const n=ev.target.name;if(n==='tab')tTab=true;
-    if(n==='modelo'&&ev.target.value&&!e){const md=S.bolos[ev.target.value];F('peso').value=num(calcBolo(md).peso,2);F('margem').value=num(md.margem,1);F('mao').value=num(md.mao,2);F('outros').value=num(md.outros||0,2);$('#rows2').innerHTML=rowsHtml('bi',md.itens);if(F('forno'))F('forno').value=md.forno||0}
+    if(n==='modelo'&&ev.target.value&&!e){const md=S.bolos[ev.target.value];F('peso').value=num(calcBolo(md).peso,2);F('margem').value=num(md.margem,1);F('mao').value=num(md.mao,2);F('outros').value=num(md.outros||0,2);F('maoTipo').value=md.maoTipo==='p'?'p':'v';F('outrosTipo').value=md.outrosTipo==='p'?'p':'v';$('#rows2').innerHTML=rowsHtml('bi',md.itens);if(F('forno'))F('forno').value=md.forno||0}
     upd()});
   $('#add-rec').addEventListener('click',()=>{const w=['w-r2','w-r3'].map(x=>$('#'+x)).find(x=>x.hidden);if(!w)return;w.hidden=false;upd();w.querySelector('select').focus()});
   upd();
@@ -633,6 +643,8 @@ document.addEventListener('input',e=>{const el=e.target;const d=el.dataset;if(!d
   else if(d.live==='esc'){const v=pfd(el.value);if(v>0){escala[d.id]=v;liveRender(el.id)}}
   else if(d.live==='escR'){const v=pfd(el.value);if(v>0){escRec[d.id]=v;liveRender(el.id)}}
   else if(d.live==='bf'){S.bolos[d.id][d.k]=pfd(el.value);save();liveRender(el.id)}
+  else if(d.live==='bft'){S.bolos[d.id][d.k]=el.value;save();render()}
+  else if(d.live==='cfgt'){S.cfg[d.k]=el.value;save()}
   else if(d.live==='prop'){S.cfg.prop[d.k]=pfd(el.value);save();liveRender(el.id)}
   else if(d.live==='cfgn'){S.cfg[d.k]=pfd(el.value);save()}
   else if(d.live==='tabkg'){const t=S.cfg.tab.find(x=>x.id===d.id);t.kg=pfd(el.value);save()}
